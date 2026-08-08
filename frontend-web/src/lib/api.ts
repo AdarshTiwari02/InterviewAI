@@ -46,3 +46,37 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 };
+export type ExperienceLevel =
+  | "student_intern"
+  | "fresher"
+  | "mid_level"
+  | "senior"
+  | "lead_architect";
+
+export type UserProfilePayload = {
+  experience_level: ExperienceLevel;
+  target_roles: string[];
+  target_company_types: string[];
+  linkedin_url?: string | null;
+  github_url?: string | null;
+  project_links: string[];
+  preparing_specific_role: boolean;
+  company_name?: string | null;
+  job_title?: string | null;
+  job_description_text?: string | null;
+};
+
+export type UserProfileResponse = UserProfilePayload & {
+  user_id: string;
+};
+
+export const profileApi = {
+  upsertProfile: (userId: string, payload: UserProfilePayload) =>
+    request<UserProfileResponse>(`/profiles/${userId}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
+  getProfile: (userId: string) =>
+    request<UserProfileResponse>(`/profiles/${userId}`),
+};
