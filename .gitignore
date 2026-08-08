@@ -1,0 +1,12 @@
+# Python
+backend-api/.venv/
+ai-worker/.venv/
+
+# Node
+node_modules/
+frontend-web/node_modules/
+realtime-service/node_modules/
+
+# Env
+.env
+*.env
