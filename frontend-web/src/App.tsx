@@ -1,373 +1,1117 @@
+// frontend-web/src/App.tsx
+
 import { FormEvent, useMemo, useState } from "react";
-import { api, profileApi } from "./lib/api";
-import type {
-  AuthResponse,
-  ExperienceLevel,
-  UserProfilePayload,
-  UserProfileResponse,
-} from "./lib/api";
 import "./App.css";
+import { api, profileApi } from "./lib/api";
+
+type AuthMode = "login" | "signup";
+
+type ExperienceLevel =
+  | "student"
+  | "entry"
+  | "mid"
+  | "senior"
+  | "lead"
+  | "";
+
+type Profile = {
+  experience_level: ExperienceLevel;
+  target_roles: string[];
+  target_company_types: string[];
+  linkedin_url: string;
+  github_url: string;
+  project_links: string[];
+  preparing_specific_role: boolean;
+  company_name: string;
+  job_title: string;
+  job_description_text: string;
+};
+
+type AuthForm = {
+  full_name: string;
+  email: string;
+  password: string;
+};
 
 const ROLE_OPTIONS = [
   "Software Engineer",
-  "Backend Developer",
-  "Frontend Developer",
-  "Full Stack Developer",
+  "Frontend Engineer",
+  "Backend Engineer",
+  "Full Stack Engineer",
   "Data Scientist",
+  "Data Analyst",
   "ML Engineer",
-  "DevOps",
-  "SRE",
+  "DevOps Engineer",
+  "Cybersecurity Engineer",
+  "Product Manager",
 ];
 
-const COMPANY_TYPE_OPTIONS = [
-  "Service-Based",
-  "Product-Based",
-  "FinTech",
-  "Networking",
-  "Cloud",
+const COMPANY_TYPES = [
+  "Product",
   "Startup",
+  "FAANG / Big Tech",
+  "Service",
+  "Fintech",
+  "Consulting",
+  "Government",
+  "Remote-first",
 ];
 
-function splitCsv(value: string): string[] {
-  return value
-    .split(",")
-    .map((v) => v.trim())
-    .filter(Boolean);
-}
+const DEFAULT_PROFILE: Profile = {
+  experience_level: "",
+  target_roles: [],
+  target_company_types: [],
+  linkedin_url: "",
+  github_url: "",
+  project_links: [],
+  preparing_specific_role: false,
+  company_name: "",
+  job_title: "",
+  job_description_text: "",
+};
 
 function App() {
-  const [mode, setMode] = useState<"login" | "signup">("signup");
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [authLoading, setAuthLoading] = useState(false);
-  const [authError, setAuthError] = useState("");
-  const [user, setUser] = useState<AuthResponse | null>(null);
+  const [authMode, setAuthMode] = useState<AuthMode>("signup");
+  const [authForm, setAuthForm] = useState<AuthForm>({
+    full_name: "",
+    email: "",
+    password: "",
+  });
 
-  const [experienceLevel, setExperienceLevel] = useState<ExperienceLevel>("fresher");
-  const [targetRoles, setTargetRoles] = useState<string[]>(["Software Engineer"]);
-  const [targetCompanyTypes, setTargetCompanyTypes] = useState<string[]>(["Product-Based"]);
-  const [linkedinUrl, setLinkedinUrl] = useState("");
-  const [githubUrl, setGithubUrl] = useState("");
-  const [projectLinksCsv, setProjectLinksCsv] = useState("");
-  const [preparingSpecificRole, setPreparingSpecificRole] = useState(false);
-  const [companyName, setCompanyName] = useState("");
-  const [jobTitle, setJobTitle] = useState("");
-  const [jobDescriptionText, setJobDescriptionText] = useState("");
+  const [profile, setProfile] = useState<Profile>(DEFAULT_PROFILE);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const [profileLoading, setProfileLoading] = useState(false);
-  const [profileError, setProfileError] = useState("");
-  const [profileSaved, setProfileSaved] = useState<UserProfileResponse | null>(null);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [savedProfile, setSavedProfile] = useState<unknown>(null);
 
-  const projectLinksPreview = useMemo(() => splitCsv(projectLinksCsv), [projectLinksCsv]);
+  const readiness = useMemo(() => {
+    let score = 18;
 
-  async function onAuthSubmit(e: FormEvent) {
-    e.preventDefault();
-    setAuthLoading(true);
-    setAuthError("");
-    setProfileSaved(null);
-    try {
-      const response =
-        mode === "signup"
-          ? await api.signup({ full_name: fullName, email, password })
-          : await api.login({ email, password });
-      setUser(response);
-      localStorage.setItem("interviewai_user", JSON.stringify(response));
-    } catch (err) {
-      setAuthError(err instanceof Error ? err.message : "Authentication failed");
-    } finally {
-      setAuthLoading(false);
+    if (profile.experience_level) score += 12;
+    if (profile.target_roles.length) score += 16;
+    if (profile.target_company_types.length) score += 12;
+    if (profile.linkedin_url) score += 8;
+    if (profile.github_url) score += 8;
+    if (profile.project_links.length) score += 10;
+
+    if (profile.preparing_specific_role) {
+      score += 8;
+      if (profile.company_name) score += 4;
+      if (profile.job_title) score += 4;
     }
-  }
 
-  function toggleSelection(value: string, selected: string[], setter: (v: string[]) => void) {
-    if (selected.includes(value)) {
-      const next = selected.filter((v) => v !== value);
-      if (next.length > 0) setter(next);
+    return Math.min(score, 100);
+  }, [profile]);
+
+  const updateAuth = (key: keyof AuthForm, value: string) => {
+    setAuthForm((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  };
+
+  const updateProfile = <K extends keyof Profile>(
+    key: K,
+    value: Profile[K],
+  ) => {
+    setProfile((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  };
+
+  const toggleArrayValue = (
+    key: "target_roles" | "target_company_types",
+    value: string,
+  ) => {
+    setProfile((current) => {
+      const values = current[key];
+
+      return {
+        ...current,
+        [key]: values.includes(value)
+          ? values.filter((item) => item !== value)
+          : [...values, value],
+      };
+    });
+  };
+
+  const handleAuth = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError("");
+    setSuccess("");
+    setLoading(true);
+
+    try {
+      if (authMode === "signup") {
+        await api.signup({
+          full_name: authForm.full_name,
+          email: authForm.email,
+          password: authForm.password,
+        });
+      } else {
+        await api.login({
+          email: authForm.email,
+          password: authForm.password,
+        });
+      }
+
+      setAuthenticated(true);
+      setSuccess(
+        authMode === "signup"
+          ? "Identity created. Configure your interview profile."
+          : "Identity verified. Continue configuring your profile.",
+      );
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleProfileSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError("");
+    setSuccess("");
+    setSavedProfile(null);
+
+    if (!profile.experience_level) {
+      setError("Select your experience level.");
       return;
     }
-    setter([...selected, value]);
-  }
 
-  async function onProfileSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!user) return;
+    if (profile.target_roles.length === 0) {
+      setError("Select at least one target role.");
+      return;
+    }
 
-    setProfileLoading(true);
-    setProfileError("");
-    setProfileSaved(null);
+    if (profile.target_company_types.length === 0) {
+      setError("Select at least one company type.");
+      return;
+    }
 
-    const payload: UserProfilePayload = {
-      experience_level: experienceLevel,
-      target_roles: targetRoles,
-      target_company_types: targetCompanyTypes,
-      linkedin_url: linkedinUrl || null,
-      github_url: githubUrl || null,
-      project_links: splitCsv(projectLinksCsv),
-      preparing_specific_role: preparingSpecificRole,
-      company_name: preparingSpecificRole ? companyName || null : null,
-      job_title: preparingSpecificRole ? jobTitle || null : null,
-      job_description_text: preparingSpecificRole ? jobDescriptionText || null : null,
-    };
+    if (
+      profile.preparing_specific_role &&
+      (!profile.company_name.trim() ||
+        !profile.job_title.trim() ||
+        !profile.job_description_text.trim())
+    ) {
+      setError(
+        "Company name, job title, and job description are required for a specific-role preparation.",
+      );
+      return;
+    }
+
+    setLoading(true);
 
     try {
-      const saved = await profileApi.upsertProfile(user.user_id, payload);
-      setProfileSaved(saved);
+      const payload = {
+        ...profile,
+        project_links: profile.project_links
+          .map((link) => link.trim())
+          .filter(Boolean),
+      };
+
+      const result = await profileApi.upsertProfile(payload);
+
+      setSavedProfile(result);
+      setSuccess("Profile synchronized successfully.");
     } catch (err) {
-      setProfileError(err instanceof Error ? err.message : "Failed to save profile");
+      setError(getErrorMessage(err));
     } finally {
-      setProfileLoading(false);
+      setLoading(false);
     }
-  }
+  };
 
   return (
-    <div className="app-root">
-      <div className="bg-orb orb-1" />
-      <div className="bg-orb orb-2" />
-      <div className="bg-grid" />
+    <div className="app">
+      <div className="ambient ambient-one" />
+      <div className="ambient ambient-two" />
+      <div className="ambient ambient-three" />
 
-      <aside className="sidebar glass">
-        <div className="brand">
-          <span className="brand-dot" />
-          <div>
-            <h2>InterviewAI</h2>
-            <p>Co-Pilot</p>
-          </div>
-        </div>
-        <nav>
-          <button className="nav-btn active">Dashboard</button>
-          <button className="nav-btn">Mock Interview</button>
-          <button className="nav-btn">Practice</button>
-          <button className="nav-btn">Analytics</button>
-        </nav>
-      </aside>
+      <div className="hud-grid" />
+      <div className="scanline" />
+
+      <Sidebar />
 
       <main className="main">
-        <header className="topbar glass">
-          <div>
-            <h1>Futuristic Interview Prep</h1>
-            <p>Personalized AI path, realistic simulations, and deep analytics.</p>
-          </div>
-          <div className="status-chip">MVP Build • Live</div>
-        </header>
+        <Topbar authenticated={authenticated} />
 
-        <section className="hero glass">
-          <div>
-            <h2>Land your dream role with AI precision</h2>
-            <p>
-              Build your profile, generate a role-specific blueprint, and practice with
-              high-signal feedback loops.
-            </p>
-            <div className="hero-actions">
-              <button className="primary-btn">Start Journey</button>
-              <button className="ghost-btn">Watch Demo</button>
-            </div>
-          </div>
-          <div className="hero-metric">
-            <div className="ring">
-              <span>82</span>
-            </div>
-            <p>Readiness Score</p>
-          </div>
-        </section>
+        <div className="content">
+          <Hero
+            authenticated={authenticated}
+            readiness={readiness}
+            onPrimary={() => {
+              document
+                .getElementById("interaction-panel")
+                ?.scrollIntoView({ behavior: "smooth" });
+            }}
+          />
 
-        <section className="cards-row">
-          <article className="mini-card glass">
-            <h3>ATS Match</h3>
-            <p className="value">76%</p>
-          </article>
-          <article className="mini-card glass">
-            <h3>Mock Progress</h3>
-            <p className="value">2/4 Rounds</p>
-          </article>
-          <article className="mini-card glass">
-            <h3>Focus Topics</h3>
-            <p className="value">DBMS, OS</p>
-          </article>
-          <article className="mini-card glass">
-            <h3>Next Milestone</h3>
-            <p className="value">System Design</p>
-          </article>
-        </section>
+          <KpiRow readiness={readiness} />
 
-        {!user ? (
-          <section className="panel glass">
-            <div className="panel-header">
-              <h3>{mode === "signup" ? "Create your account" : "Welcome back"}</h3>
-              <div className="switch">
-                <button onClick={() => setMode("signup")} className={mode === "signup" ? "on" : ""}>
-                  Sign up
-                </button>
-                <button onClick={() => setMode("login")} className={mode === "login" ? "on" : ""}>
-                  Login
-                </button>
-              </div>
-            </div>
-
-            <form onSubmit={onAuthSubmit} className="form-grid">
-              {mode === "signup" && (
-                <input
-                  className="input"
-                  placeholder="Full name"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  required
+          <section
+            className="workspace-grid"
+            id="interaction-panel"
+            aria-label="InterviewAI workspace"
+          >
+            <div className="interaction-column">
+              {!authenticated ? (
+                <AuthPanel
+                  mode={authMode}
+                  form={authForm}
+                  loading={loading}
+                  error={error}
+                  success={success}
+                  onModeChange={(mode) => {
+                    setAuthMode(mode);
+                    setError("");
+                    setSuccess("");
+                  }}
+                  onChange={updateAuth}
+                  onSubmit={handleAuth}
+                />
+              ) : (
+                <ProfilePanel
+                  profile={profile}
+                  readiness={readiness}
+                  loading={loading}
+                  error={error}
+                  success={success}
+                  savedProfile={savedProfile}
+                  onChange={updateProfile}
+                  onToggle={toggleArrayValue}
+                  onSubmit={handleProfileSubmit}
                 />
               )}
-              <input
-                className="input"
-                type="email"
-                placeholder="Email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-              <input
-                className="input"
-                type="password"
-                placeholder="Password (min 8 chars)"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                minLength={8}
-                required
-              />
-              <button className="primary-btn" type="submit" disabled={authLoading}>
-                {authLoading ? "Please wait..." : mode === "signup" ? "Create account" : "Login"}
-              </button>
-            </form>
-            {authError && <p className="error">{authError}</p>}
-          </section>
-        ) : (
-          <section className="panel glass">
-            <div className="panel-header">
-              <h3>Onboarding Profile Wizard</h3>
-              <p className="muted">
-                Logged in as <strong>{user.full_name}</strong> ({user.email})
-              </p>
             </div>
 
-            <form onSubmit={onProfileSubmit} className="form-grid">
-              <label className="label">
-                Experience level
-                <select
-                  className="input"
-                  value={experienceLevel}
-                  onChange={(e) => setExperienceLevel(e.target.value as ExperienceLevel)}
-                >
-                  <option value="student_intern">Student/Intern</option>
-                  <option value="fresher">Fresher (0-1 yrs)</option>
-                  <option value="mid_level">Mid-Level (2-5 yrs)</option>
-                  <option value="senior">Senior (5+ yrs)</option>
-                  <option value="lead_architect">Lead/Architect (10+ yrs)</option>
-                </select>
-              </label>
+            <aside className="telemetry-column">
+              <ReadinessCard readiness={readiness} authenticated={authenticated} />
 
-              <div>
-                <p className="label-title">Target roles</p>
-                <div className="chip-wrap">
-                  {ROLE_OPTIONS.map((role) => (
-                    <button
-                      key={role}
-                      type="button"
-                      className={`chip ${targetRoles.includes(role) ? "chip-on" : ""}`}
-                      onClick={() => toggleSelection(role, targetRoles, setTargetRoles)}
-                    >
-                      {role}
-                    </button>
-                  ))}
+              <SystemCard />
+
+              <div className="terminal-card">
+                <div className="terminal-header">
+                  <span className="terminal-dot active" />
+                  <span className="terminal-dot" />
+                  <span className="terminal-dot" />
+                  <span className="terminal-title">AI_CORE / STATUS</span>
                 </div>
-              </div>
 
-              <div>
-                <p className="label-title">Target company types</p>
-                <div className="chip-wrap">
-                  {COMPANY_TYPE_OPTIONS.map((type) => (
-                    <button
-                      key={type}
-                      type="button"
-                      className={`chip ${targetCompanyTypes.includes(type) ? "chip-on" : ""}`}
-                      onClick={() =>
-                        toggleSelection(type, targetCompanyTypes, setTargetCompanyTypes)
+                <div className="terminal-body">
+                  <div>
+                    <span className="terminal-muted">&gt;</span> neural engine
+                    <span className="terminal-green"> ONLINE</span>
+                  </div>
+                  <div>
+                    <span className="terminal-muted">&gt;</span> interview
+                    matrix
+                    <span className="terminal-green"> READY</span>
+                  </div>
+                  <div>
+                    <span className="terminal-muted">&gt;</span> candidate
+                    profile
+                    <span
+                      className={
+                        authenticated
+                          ? "terminal-green"
+                          : "terminal-warning"
                       }
                     >
-                      {type}
-                    </button>
-                  ))}
+                      {authenticated ? " SYNCED" : " WAITING"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="terminal-muted">&gt;</span> response
+                    analysis
+                    <span className="terminal-green"> ARMED</span>
+                  </div>
                 </div>
               </div>
-
-              <input
-                className="input"
-                placeholder="LinkedIn URL (optional)"
-                value={linkedinUrl}
-                onChange={(e) => setLinkedinUrl(e.target.value)}
-              />
-              <input
-                className="input"
-                placeholder="GitHub URL (optional)"
-                value={githubUrl}
-                onChange={(e) => setGithubUrl(e.target.value)}
-              />
-              <input
-                className="input"
-                placeholder="Project links CSV (optional)"
-                value={projectLinksCsv}
-                onChange={(e) => setProjectLinksCsv(e.target.value)}
-              />
-              {projectLinksPreview.length > 0 && (
-                <small className="muted">Parsed project links: {projectLinksPreview.join(" | ")}</small>
-              )}
-
-              <label className="toggle">
-                <input
-                  type="checkbox"
-                  checked={preparingSpecificRole}
-                  onChange={(e) => setPreparingSpecificRole(e.target.checked)}
-                />
-                <span>Preparing for a specific role</span>
-              </label>
-
-              {preparingSpecificRole && (
-                <>
-                  <input
-                    className="input"
-                    placeholder="Company name"
-                    value={companyName}
-                    onChange={(e) => setCompanyName(e.target.value)}
-                    required
-                  />
-                  <input
-                    className="input"
-                    placeholder="Job title"
-                    value={jobTitle}
-                    onChange={(e) => setJobTitle(e.target.value)}
-                    required
-                  />
-                  <textarea
-                    className="input"
-                    placeholder="Paste full JD text"
-                    value={jobDescriptionText}
-                    onChange={(e) => setJobDescriptionText(e.target.value)}
-                    rows={5}
-                    required
-                  />
-                </>
-              )}
-
-              <button className="primary-btn" type="submit" disabled={profileLoading}>
-                {profileLoading ? "Saving..." : "Save Profile"}
-              </button>
-            </form>
-
-            {profileError && <p className="error">{profileError}</p>}
-            {profileSaved && (
-              <pre className="json-view">{JSON.stringify(profileSaved, null, 2)}</pre>
-            )}
+            </aside>
           </section>
-        )}
+        </div>
       </main>
     </div>
   );
+}
+
+function Sidebar() {
+  return (
+    <aside className="sidebar">
+      <div className="brand">
+        <div className="brand-orb">
+          <span />
+          <span />
+          <span />
+        </div>
+
+        <div>
+          <div className="brand-name">INTERVIEW<span>AI</span></div>
+          <div className="brand-subtitle">CO-PILOT SYSTEM</div>
+        </div>
+      </div>
+
+      <div className="sidebar-line" />
+
+      <nav className="nav" aria-label="Primary navigation">
+        <NavItem active icon="⌂" label="Command Center" />
+        <NavItem icon="◈" label="Mock Interview" />
+        <NavItem icon="◎" label="Practice Lab" />
+        <NavItem icon="◌" label="Analytics" />
+      </nav>
+
+      <div className="sidebar-bottom">
+        <div className="version">
+          <span className="status-dot" />
+          SYSTEM OPERATIONAL
+        </div>
+
+        <div className="sidebar-profile">
+          <div className="avatar">AI</div>
+          <div>
+            <strong>AI CO-PILOT</strong>
+            <span>Neural interview engine</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function NavItem({
+  icon,
+  label,
+  active = false,
+}: {
+  icon: string;
+  label: string;
+  active?: boolean;
+}) {
+  return (
+    <button className={`nav-item ${active ? "active" : ""}`} type="button">
+      <span className="nav-icon">{icon}</span>
+      <span>{label}</span>
+      {active && <span className="nav-active-line" />}
+    </button>
+  );
+}
+
+function Topbar({ authenticated }: { authenticated: boolean }) {
+  return (
+    <header className="topbar">
+      <div className="breadcrumb">
+        <span>INTERVIEWAI</span>
+        <i>/</i>
+        <strong>COMMAND CENTER</strong>
+      </div>
+
+      <div className="topbar-actions">
+        <div className="system-time">
+          <span className="live-dot" />
+          LIVE SYSTEM
+        </div>
+
+        <div className="top-status">
+          <span className={authenticated ? "online" : "idle"} />
+          {authenticated ? "IDENTITY VERIFIED" : "AWAITING IDENTITY"}
+        </div>
+
+        <button className="icon-button" type="button" aria-label="Notifications">
+          ◇
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function Hero({
+  authenticated,
+  readiness,
+  onPrimary,
+}: {
+  authenticated: boolean;
+  readiness: number;
+  onPrimary: () => void;
+}) {
+  return (
+    <section className="hero">
+      <div className="hero-content">
+        <div className="eyebrow">
+          <span className="eyebrow-line" />
+          AI-DRIVEN INTERVIEW INTELLIGENCE
+        </div>
+
+        <h1>
+          Become the candidate
+          <br />
+          <span>they remember.</span>
+        </h1>
+
+        <p>
+          A personal AI command center that turns interview preparation into a
+          measurable advantage.
+        </p>
+
+        <div className="hero-actions">
+          <button className="primary-button" type="button" onClick={onPrimary}>
+            <span>{authenticated ? "Configure Profile" : "Initialize Co-Pilot"}</span>
+            <b>↗</b>
+          </button>
+
+          <button className="secondary-button" type="button" onClick={onPrimary}>
+            Explore system
+            <span>↓</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="hero-visual">
+        <div className="orbit orbit-one" />
+        <div className="orbit orbit-two" />
+        <div className="orbit orbit-three" />
+
+        <div className="hologram">
+          <div className="hologram-core">
+            <div className="core-inner">
+              <span className="core-label">READINESS</span>
+              <strong>{readiness}</strong>
+              <small>/ 100</small>
+            </div>
+          </div>
+
+          <div className="holo-ring ring-a" />
+          <div className="holo-ring ring-b" />
+          <div className="holo-ring ring-c" />
+
+          <div className="float-label label-top">
+            <span>AI SIGNAL</span>
+            <strong>ACTIVE</strong>
+          </div>
+
+          <div className="float-label label-bottom">
+            <span>PREPARATION</span>
+            <strong>{readiness > 65 ? "STABLE" : "BUILDING"}</strong>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function KpiRow({ readiness }: { readiness: number }) {
+  return (
+    <section className="kpi-grid" aria-label="Interview preparation metrics">
+      <KpiCard
+        index="01"
+        label="ATS COMPATIBILITY"
+        value="86"
+        unit="%"
+        trend="+12%"
+        description="Resume signal strength"
+      />
+
+      <KpiCard
+        index="02"
+        label="MOCK PROGRESS"
+        value="64"
+        unit="%"
+        trend="+8%"
+        description="Interview simulation"
+      />
+
+      <KpiCard
+        index="03"
+        label="WEAK TOPICS"
+        value="07"
+        unit=""
+        trend="-03"
+        description="Priority learning nodes"
+      />
+
+      <KpiCard
+        index="04"
+        label="NEXT MILESTONE"
+        value={readiness >= 70 ? "READY" : "BUILD"}
+        unit=""
+        trend="AI"
+        description="Candidate readiness"
+        special
+      />
+    </section>
+  );
+}
+
+function KpiCard({
+  index,
+  label,
+  value,
+  unit,
+  trend,
+  description,
+  special = false,
+}: {
+  index: string;
+  label: string;
+  value: string;
+  unit: string;
+  trend: string;
+  description: string;
+  special?: boolean;
+}) {
+  return (
+    <article className="kpi-card">
+      <div className="kpi-top">
+        <span>{index}</span>
+        <span className="kpi-trend">{trend}</span>
+      </div>
+
+      <div className={`kpi-value ${special ? "kpi-special" : ""}`}>
+        {value}
+        {unit && <small>{unit}</small>}
+      </div>
+
+      <div className="kpi-label">{label}</div>
+      <div className="kpi-description">{description}</div>
+
+      <div className="kpi-scan" />
+    </article>
+  );
+}
+
+function AuthPanel({
+  mode,
+  form,
+  loading,
+  error,
+  success,
+  onModeChange,
+  onChange,
+  onSubmit,
+}: {
+  mode: AuthMode;
+  form: AuthForm;
+  loading: boolean;
+  error: string;
+  success: string;
+  onModeChange: (mode: AuthMode) => void;
+  onChange: (key: keyof AuthForm, value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <section className="panel">
+      <PanelHeader
+        code="AUTH.01"
+        title="Identity Initialization"
+        description="Create or access your InterviewAI candidate identity."
+      />
+
+      <div className="auth-switch">
+        <button
+          type="button"
+          className={mode === "signup" ? "selected" : ""}
+          onClick={() => onModeChange("signup")}
+        >
+          CREATE IDENTITY
+        </button>
+        <button
+          type="button"
+          className={mode === "login" ? "selected" : ""}
+          onClick={() => onModeChange("login")}
+        >
+          EXISTING IDENTITY
+        </button>
+      </div>
+
+      <form className="form" onSubmit={onSubmit}>
+        {mode === "signup" && (
+          <Field
+            label="FULL NAME"
+            name="full_name"
+            value={form.full_name}
+            placeholder="Enter your full name"
+            onChange={(value) => onChange("full_name", value)}
+            required
+          />
+        )}
+
+        <Field
+          label="EMAIL ADDRESS"
+          name="email"
+          type="email"
+          value={form.email}
+          placeholder="candidate@domain.com"
+          onChange={(value) => onChange("email", value)}
+          required
+        />
+
+        <Field
+          label="ACCESS PASSWORD"
+          name="password"
+          type="password"
+          value={form.password}
+          placeholder="••••••••••••"
+          onChange={(value) => onChange("password", value)}
+          required
+        />
+
+        <Feedback error={error} success={success} />
+
+        <button className="submit-button" type="submit" disabled={loading}>
+          <span>{loading ? "AUTHENTICATING..." : "AUTHORIZE ACCESS"}</span>
+          <b>{loading ? "◌" : "→"}</b>
+        </button>
+      </form>
+
+      <div className="panel-footer">
+        <span>SECURITY PROTOCOL</span>
+        <span className="footer-value">ENCRYPTED / AI-READY</span>
+      </div>
+    </section>
+  );
+}
+
+function ProfilePanel({
+  profile,
+  readiness,
+  loading,
+  error,
+  success,
+  savedProfile,
+  onChange,
+  onToggle,
+  onSubmit,
+}: {
+  profile: Profile;
+  readiness: number;
+  loading: boolean;
+  error: string;
+  success: string;
+  savedProfile: unknown;
+  onChange: <K extends keyof Profile>(key: K, value: Profile[K]) => void;
+  onToggle: (
+    key: "target_roles" | "target_company_types",
+    value: string,
+  ) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <section className="panel">
+      <PanelHeader
+        code="PROFILE.02"
+        title="Candidate Calibration"
+        description="Give the AI the signals it needs to build your preparation matrix."
+      />
+
+      <form className="form" onSubmit={onSubmit}>
+        <div className="section-label">
+          <span>01</span>
+          EXPERIENCE VECTOR
+        </div>
+
+        <div className="select-grid">
+          {[
+            ["student", "STUDENT"],
+            ["entry", "ENTRY"],
+            ["mid", "MID LEVEL"],
+            ["senior", "SENIOR"],
+            ["lead", "LEAD"],
+          ].map(([value, label]) => (
+            <button
+              type="button"
+              key={value}
+              className={`choice-card ${
+                profile.experience_level === value ? "selected" : ""
+              }`}
+              onClick={() =>
+                onChange("experience_level", value as ExperienceLevel)
+              }
+            >
+              <span className="choice-index">0{value === "student" ? 1 : value === "entry" ? 2 : value === "mid" ? 3 : value === "senior" ? 4 : 5}</span>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="section-label">
+          <span>02</span>
+          TARGET ROLES
+        </div>
+
+        <div className="tag-grid">
+          {ROLE_OPTIONS.map((role) => (
+            <button
+              type="button"
+              key={role}
+              className={`tag-button ${
+                profile.target_roles.includes(role) ? "selected" : ""
+              }`}
+              onClick={() => onToggle("target_roles", role)}
+            >
+              <span>{profile.target_roles.includes(role) ? "✓" : "+"}</span>
+              {role}
+            </button>
+          ))}
+        </div>
+
+        <div className="section-label">
+          <span>03</span>
+          TARGET ENVIRONMENT
+        </div>
+
+        <div className="tag-grid">
+          {COMPANY_TYPES.map((companyType) => (
+            <button
+              type="button"
+              key={companyType}
+              className={`tag-button ${
+                profile.target_company_types.includes(companyType)
+                  ? "selected"
+                  : ""
+              }`}
+              onClick={() =>
+                onToggle("target_company_types", companyType)
+              }
+            >
+              <span>
+                {profile.target_company_types.includes(companyType)
+                  ? "✓"
+                  : "+"}
+              </span>
+              {companyType}
+            </button>
+          ))}
+        </div>
+
+        <div className="section-label">
+          <span>04</span>
+          DIGITAL FOOTPRINT
+        </div>
+
+        <div className="two-column">
+          <Field
+            label="LINKEDIN URL"
+            name="linkedin_url"
+            value={profile.linkedin_url}
+            placeholder="linkedin.com/in/yourname"
+            onChange={(value) => onChange("linkedin_url", value)}
+          />
+
+          <Field
+            label="GITHUB URL"
+            name="github_url"
+            value={profile.github_url}
+            placeholder="github.com/yourname"
+            onChange={(value) => onChange("github_url", value)}
+          />
+        </div>
+
+        <Field
+          label="PROJECT LINKS"
+          name="project_links"
+          value={profile.project_links.join(", ")}
+          placeholder="project-one.com, github.com/project-two"
+          onChange={(value) =>
+            onChange(
+              "project_links",
+              value
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean),
+            )
+          }
+        />
+
+        <div className="specific-role-card">
+          <div>
+            <span className="specific-code">ROLE TARGETING</span>
+            <strong>Preparing for a specific position?</strong>
+            <p>
+              Enable deep role analysis using the company's actual job
+              description.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className={`toggle ${profile.preparing_specific_role ? "on" : ""}`}
+            onClick={() =>
+              onChange(
+                "preparing_specific_role",
+                !profile.preparing_specific_role,
+              )
+            }
+            aria-pressed={profile.preparing_specific_role}
+          >
+            <span />
+          </button>
+        </div>
+
+        {profile.preparing_specific_role && (
+          <div className="role-fields">
+            <div className="two-column">
+              <Field
+                label="COMPANY"
+                name="company_name"
+                value={profile.company_name}
+                placeholder="Company name"
+                onChange={(value) => onChange("company_name", value)}
+                required
+              />
+
+              <Field
+                label="JOB TITLE"
+                name="job_title"
+                value={profile.job_title}
+                placeholder="Target position"
+                onChange={(value) => onChange("job_title", value)}
+                required
+              />
+            </div>
+
+            <label className="field textarea-field">
+              <span>JOB DESCRIPTION</span>
+              <textarea
+                value={profile.job_description_text}
+                placeholder="Paste the job description here..."
+                onChange={(event) =>
+                  onChange("job_description_text", event.target.value)
+                }
+                required
+              />
+            </label>
+          </div>
+        )}
+
+        <Feedback error={error} success={success} />
+
+        <button className="submit-button" type="submit" disabled={loading}>
+          <span>{loading ? "SYNCHRONIZING..." : "SYNC PROFILE"}</span>
+          <b>{loading ? "◌" : "→"}</b>
+        </button>
+      </form>
+
+      {savedProfile && (
+        <div className="json-output">
+          <div className="json-header">
+            <span>PROFILE RESPONSE</span>
+            <span className="json-live">● SAVED</span>
+          </div>
+
+          <pre>{JSON.stringify(savedProfile, null, 2)}</pre>
+        </div>
+      )}
+
+      <div className="panel-footer">
+        <span>READINESS INDEX</span>
+        <span className="footer-value">{readiness}% CALIBRATED</span>
+      </div>
+    </section>
+  );
+}
+
+function PanelHeader({
+  code,
+  title,
+  description,
+}: {
+  code: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="panel-header">
+      <div className="panel-code">{code}</div>
+      <h2>{title}</h2>
+      <p>{description}</p>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  name,
+  value,
+  placeholder,
+  type = "text",
+  required = false,
+  onChange,
+}: {
+  label: string;
+  name: string;
+  value: string;
+  placeholder: string;
+  type?: string;
+  required?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="field" htmlFor={name}>
+      <span>{label}</span>
+      <input
+        id={name}
+        name={name}
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        required={required}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <i />
+    </label>
+  );
+}
+
+function Feedback({
+  error,
+  success,
+}: {
+  error: string;
+  success: string;
+}) {
+  if (!error && !success) return null;
+
+  return (
+    <div className={`feedback ${error ? "error" : "success"}`}>
+      <span>{error ? "!" : "✓"}</span>
+      <div>
+        <strong>{error ? "SYSTEM NOTICE" : "SYSTEM CONFIRMATION"}</strong>
+        <p>{error || success}</p>
+      </div>
+    </div>
+  );
+}
+
+function ReadinessCard({
+  readiness,
+  authenticated,
+}: {
+  readiness: number;
+  authenticated: boolean;
+}) {
+  const circumference = 2 * Math.PI * 72;
+  const dashOffset = circumference - (readiness / 100) * circumference;
+
+  return (
+    <article className="readiness-card">
+      <div className="card-kicker">
+        <span>AI READINESS ENGINE</span>
+        <span className="pulse-mark" />
+      </div>
+
+      <div className="readiness-visual">
+        <svg viewBox="0 0 180 180">
+          <circle
+            className="readiness-track"
+            cx="90"
+            cy="90"
+            r="72"
+          />
+          <circle
+            className="readiness-progress"
+            cx="90"
+            cy="90"
+            r="72"
+            style={{
+              strokeDasharray: circumference,
+              strokeDashoffset: dashOffset,
+            }}
+          />
+        </svg>
+
+        <div className="readiness-number">
+          <strong>{readiness}</strong>
+          <span>READINESS</span>
+        </div>
+      </div>
+
+      <div className="readiness-copy">
+        <strong>
+          {authenticated
+            ? readiness >= 70
+              ? "Profile signal is strong."
+              : "Calibration in progress."
+            : "Your interview intelligence awaits."}
+        </strong>
+        <p>
+          {authenticated
+            ? "Complete more profile signals to improve AI personalization."
+            : "Initialize your identity to unlock personalized preparation."}
+        </p>
+      </div>
+
+      <div className="signal-bars">
+        {[30, 52, 42, 72, 60, 88, 76, 94, 81, 100, 86, 92].map(
+          (height, index) => (
+            <span key={index} style={{ height: `${height}%` }} />
+          ),
+        )}
+      </div>
+    </article>
+  );
+}
+
+function SystemCard() {
+  return (
+    <article className="system-card">
+      <div className="system-card-header">
+        <span>NEURAL NETWORK</span>
+        <span className="network-status">CONNECTED</span>
+      </div>
+
+      <div className="network">
+        <div className="network-node node-center">AI</div>
+        <div className="network-node node-one">CV</div>
+        <div className="network-node node-two">IQ</div>
+        <div className="network-node node-three">HR</div>
+        <div className="network-node node-four">ATS</div>
+
+        <div className="network-line line-one" />
+        <div className="network-line line-two" />
+        <div className="network-line line-three" />
+        <div className="network-line line-four" />
+      </div>
+
+      <div className="system-stats">
+        <div>
+          <span>MODEL</span>
+          <strong>IA-4.2</strong>
+        </div>
+        <div>
+          <span>LATENCY</span>
+          <strong>24ms</strong>
+        </div>
+        <div>
+          <span>UPTIME</span>
+          <strong>99.9%</strong>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+
+  return "The operation could not be completed. Please try again.";
 }
 
 export default App;
